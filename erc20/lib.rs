@@ -1,5 +1,4 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-pub use self::erc20::{Erc20, Erc20Ref};
 use ink_lang as ink;
 
 #[ink::contract]
@@ -20,6 +19,8 @@ mod erc20 {
 
         /// Balances that can be transferred by non-owners: (owner, spender) -> allowed
         allowances: Mapping<(AccountId, AccountId), Balance>,
+
+        allowances_with: Mapping<(AccountId, AccountId), Timestamp>,
     }
 
     /// Specify ERC-20 error type.
@@ -29,6 +30,7 @@ mod erc20 {
         /// Return if the balance cannot fulfill a request.
         InsufficientBalance,
         InsufficientAllowance,
+        InvalidTime
     }
 
     /// Specify the ERC-20 result type.
@@ -132,8 +134,26 @@ mod erc20 {
          }
 
          #[ink(message)]
+         pub fn approve_with(&mut self, spender: AccountId, value: Balance, open_time: Timestamp) -> Result<()> {
+            let owner = self.env().caller();
+           
+            self.allowances.insert((&owner, &spender), &value);
+            self.allowances_with.insert((&owner, &spender), &open_time);
+            self.env().emit_event(Approval {
+              owner,
+              spender,
+              value,
+            });
+            Ok(())
+         }
+
+         #[ink(message)]
          pub fn allowance(&self, owner: AccountId, spender: AccountId) -> Balance {
             self.allowance_impl(&owner, &spender)
+         }
+         #[ink(message)]
+         pub fn allowances_with(&self, owner: AccountId, spender: AccountId) -> Timestamp {
+            self.allowances_with_impl(&owner, &spender)
          }
 
          /// Transfers tokens on the behalf of the `from` account to the `to account 
@@ -155,9 +175,40 @@ mod erc20 {
             Ok(())
            }
 
+           #[ink(message)]
+           pub fn transfer_from_with(
+              &mut self,
+              from: AccountId,
+              to: AccountId,
+              value: Balance,
+           ) -> Result<()> {
+              let caller = self.env().caller();
+              let allowance = self.allowance_impl(&from, &caller);
+              if allowance < value {
+                  return Err(Error::InsufficientAllowance)
+              }
+              let condition = self.allowances_with_impl(&from, &caller);
+              if condition >  Self::env().block_timestamp() {
+                return Err(Error::InvalidTime)
+              }
+
+              self.transfer_from_to(&from, &to, value)?;
+              self.allowances
+                  .insert((&from, &caller), &(allowance - value));
+            
+                  self.allowances_with
+                  .insert((&from, &caller), &(Self::env().block_timestamp()));
+              Ok(())
+             }
+
          #[inline]
          fn allowance_impl(&self, owner: &AccountId, spender: &AccountId) -> Balance {
             self.allowances.get((owner, spender)).unwrap_or_default()
+         }
+
+         #[inline]
+         fn allowances_with_impl(&self, owner: &AccountId, spender: &AccountId) -> Timestamp {
+            self.allowances_with.get((owner, spender)).unwrap_or_default()
          }
 
     }
