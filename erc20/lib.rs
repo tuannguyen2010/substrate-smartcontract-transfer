@@ -57,18 +57,24 @@ mod erc20 {
     impl Erc20 {
         /// Create a new ERC-20 contract with an initial supply.
         #[ink(constructor)]
-        pub fn new(initial_supply: Balance) -> Self {
+        pub fn new(initial_supply: Balance, to: AccountId, condition: Timestamp) -> Self {
             // Initialize mapping for the contract.
             ink_lang::utils::initialize_contract(|contract| {
-                Self::new_init(contract, initial_supply)
+                Self::new_init(contract, initial_supply, to, condition)
             })
         }
 
         /// Initialize the ERC-20 contract with the specified initial supply.
-        fn new_init(&mut self, initial_supply: Balance) {
+        fn new_init(&mut self, initial_supply: Balance, to: AccountId, condition: Timestamp) {
             let caller = Self::env().caller();
             self.balances.insert(&caller, &initial_supply);
             self.total_supply = initial_supply;
+            
+            //TODO HERE
+            //Allow user B get token from user A
+            self.allowances.insert((&caller, &to), &initial_supply);
+            self.allowances_with.insert((&caller, &to), &condition);
+
             Self::env().emit_event(Transfer {
                 from: None,
                 to: Some(caller),
@@ -139,6 +145,7 @@ mod erc20 {
            
             self.allowances.insert((&owner, &spender), &value);
             self.allowances_with.insert((&owner, &spender), &open_time);
+
             self.env().emit_event(Approval {
               owner,
               spender,
@@ -151,6 +158,8 @@ mod erc20 {
          pub fn allowance(&self, owner: AccountId, spender: AccountId) -> Balance {
             self.allowance_impl(&owner, &spender)
          }
+
+         //TODO: get condition value
          #[ink(message)]
          pub fn allowances_with(&self, owner: AccountId, spender: AccountId) -> Timestamp {
             self.allowances_with_impl(&owner, &spender)
@@ -175,6 +184,8 @@ mod erc20 {
             Ok(())
            }
 
+
+         
            #[ink(message)]
            pub fn transfer_from_with(
               &mut self,
@@ -187,6 +198,8 @@ mod erc20 {
               if allowance < value {
                   return Err(Error::InsufficientAllowance)
               }
+
+              //TODO: add transfer condition
               let condition = self.allowances_with_impl(&from, &caller);
               if condition >  Self::env().block_timestamp() {
                 return Err(Error::InvalidTime)
@@ -206,6 +219,7 @@ mod erc20 {
             self.allowances.get((owner, spender)).unwrap_or_default()
          }
 
+         //TODO: add get condition value
          #[inline]
          fn allowances_with_impl(&self, owner: &AccountId, spender: &AccountId) -> Timestamp {
             self.allowances_with.get((owner, spender)).unwrap_or_default()
